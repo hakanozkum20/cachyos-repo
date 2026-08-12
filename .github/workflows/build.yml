@@ -1,0 +1,75 @@
+# AUR paketlerini derleyip bu repoya (cachyos-repo) yayınlayan CI.
+# KineticWE ISO'sunun [cachyos-repo] pacman deposunu besler.
+#
+# Tetikleyiciler:
+#   - main'e push (bu dosya değişince)
+#   - Haftalık (noctalia-git gibi -git paketleri güncel kalsın)
+#   - Manuel (Actions sekmesi → Run workflow)
+#
+# Derlenecek paketleri aşağıdaki AUR_PACKAGES ortam değişkenine ekle.
+name: Build AUR packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build.yml'
+  schedule:
+    # Her pazartesi 03:17 UTC
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    permissions:
+      contents: write
+    env:
+      # Derlenecek AUR paketleri (boşlukla ayrılmış)
+      AUR_PACKAGES: noctalia-git
+    steps:
+      - name: Install build dependencies
+        run: |
+          sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
+          pacman -Syu --noconfirm base-devel git sudo
+
+      - name: Create non-root builder
+        run: |
+          useradd -m -G wheel builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+      - name: Build AUR packages
+        run: |
+          set -e
+          mkdir -p /tmp/built
+          for pkg in $AUR_PACKAGES; do
+            echo "::group::Building $pkg"
+            su builder -c "cd /tmp && git clone https://aur.archlinux.org/${pkg}.git && cd ${pkg} && makepkg -sf --noconfirm --skippgpcheck"
+            cp /tmp/${pkg}/*.pkg.tar.zst /tmp/built/
+            echo "::endgroup::"
+          done
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Add packages to repo DB
+        run: |
+          mkdir -p repo/x86_64
+          cp /tmp/built/*.pkg.tar.zst repo/x86_64/
+          cd repo/x86_64
+          # cachyos-repo.db.tar.gz — pacman [cachyos-repo] bu ismi arar.
+          # Tüm mevcut .pkg dosyalarından DB'yi yeniden oluştur.
+          rm -f cachyos-repo.db cachyos-repo.db.tar.gz cachyos-repo.files cachyos-repo.files.tar.gz
+          repo-add cachyos-repo.db.tar.gz *.pkg.tar.zst
+
+      - name: Commit & push
+        working-directory: repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: rebuild AUR packages ($AUR_PACKAGES)" || exit 0
+          git push

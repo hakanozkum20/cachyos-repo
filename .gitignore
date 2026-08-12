@@ -1,0 +1,2 @@
+# Sadece CI üretilen paketler burada; başka artifact yok.
+# (İsterseniz .pkg dosyalarını repoda tutmak yerine release olarak da dağıtabilirsiniz.)
