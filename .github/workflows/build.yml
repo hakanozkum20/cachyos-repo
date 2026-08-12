@@ -11,7 +11,7 @@ name: Build AUR packages
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - '.github/workflows/build.yml'
   schedule:
